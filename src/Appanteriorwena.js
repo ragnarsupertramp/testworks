@@ -1,23 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAnalytics } from "firebase/analytics";
-import { getDatabase, ref, push, onValue, remove, update } from 'firebase/database';
 import { format } from 'date-fns';
-
-// Tu configuración de Firebase
-const firebaseConfig = {
-  apiKey: "AIzaSyA-GViOkkcl4kzYg4djj3k7i2MUB8XIi6s",
-  authDomain: "testsworks.firebaseapp.com",
-  projectId: "testsworks",
-  storageBucket: "testsworks.appspot.com",
-  messagingSenderId: "123090865440",
-  appId: "1:123090865440:web:085253be8ac119edf51b45",
-  measurementId: "G-CG693H1Z4R"
-};
-
-// Inicializa Firebase
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
 
 const WorkLoggerApp = () => {
   const [activeTab, setActiveTab] = useState('newEntry');
@@ -34,33 +16,24 @@ const WorkLoggerApp = () => {
   const [newCategory, setNewCategory] = useState({ type: 'clients', name: '' });
 
   useEffect(() => {
-    const entriesRef = ref(database, 'entries');
-    const categoriesRef = ref(database, 'categories');
-
-    onValue(entriesRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setEntries(Object.entries(data).map(([key, value]) => ({ id: key, ...value })));
-      }
-    });
-
-    onValue(categoriesRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setCategories(data);
-      }
-    });
+    const savedEntries = JSON.parse(localStorage.getItem('entries')) || [];
+    const savedCategories = JSON.parse(localStorage.getItem('categories')) || { clients: [], family: [] };
+    setEntries(savedEntries);
+    setCategories(savedCategories);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('entries', JSON.stringify(entries));
+    localStorage.setItem('categories', JSON.stringify(categories));
+  }, [entries, categories]);
 
   const handleAddEntry = (e) => {
     e.preventDefault();
     if (editingEntry) {
-      const entryRef = ref(database, `entries/${editingEntry.id}`);
-      update(entryRef, newEntry);
+      setEntries(entries.map(entry => entry.id === editingEntry.id ? { ...newEntry, id: editingEntry.id } : entry));
       setEditingEntry(null);
     } else {
-      const entriesRef = ref(database, 'entries');
-      push(entriesRef, newEntry);
+      setEntries([...entries, { ...newEntry, id: Date.now() }]);
     }
     setNewEntry({
       date: format(new Date(), 'yyyy-MM-dd'),
@@ -79,15 +52,16 @@ const WorkLoggerApp = () => {
   };
 
   const handleDeleteEntry = (id) => {
-    const entryRef = ref(database, `entries/${id}`);
-    remove(entryRef);
+    setEntries(entries.filter(entry => entry.id !== id));
   };
 
   const handleAddCategory = (e) => {
     e.preventDefault();
     if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
-      const categoriesRef = ref(database, `categories/${newCategory.type}`);
-      push(categoriesRef, newCategory.name);
+      setCategories({
+        ...categories,
+        [newCategory.type]: [...categories[newCategory.type], newCategory.name]
+      });
       setNewCategory({ ...newCategory, name: '' });
     }
   };
@@ -257,6 +231,3 @@ const WorkLoggerApp = () => {
 };
 
 export default WorkLoggerApp;
-
-
-
