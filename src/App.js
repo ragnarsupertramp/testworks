@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAnalytics } from "firebase/analytics";
 import { getDatabase, ref, push, onValue, remove, update } from 'firebase/database';
 import { format } from 'date-fns';
 
-// Tu configuración de Firebase
+// Configuración de Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyA-GViOkkcl4kzYg4djj3k7i2MUB8XIi6s",
   authDomain: "testsworks.firebaseapp.com",
@@ -41,6 +40,8 @@ const WorkLoggerApp = () => {
       const data = snapshot.val();
       if (data) {
         setEntries(Object.entries(data).map(([key, value]) => ({ id: key, ...value })));
+      } else {
+        setEntries([]);
       }
     });
 
@@ -48,6 +49,8 @@ const WorkLoggerApp = () => {
       const data = snapshot.val();
       if (data) {
         setCategories(data);
+      } else {
+        setCategories({ clients: [], family: [] });
       }
     });
   }, []);
@@ -86,20 +89,24 @@ const WorkLoggerApp = () => {
   const handleAddCategory = (e) => {
     e.preventDefault();
     if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
-      const categoriesRef = ref(database, `categories/${newCategory.type}`);
-      push(categoriesRef, newCategory.name);
+      const updatedCategories = {
+        ...categories,
+        [newCategory.type]: [...categories[newCategory.type], newCategory.name]
+      };
+      const categoriesRef = ref(database, 'categories');
+      update(categoriesRef, updatedCategories);
       setNewCategory({ ...newCategory, name: '' });
     }
   };
 
   const handleDeleteCategory = (type, name) => {
-    setCategories({
+    const updatedCategories = {
       ...categories,
       [type]: categories[type].filter(item => item !== name)
-    });
+    };
+    const categoriesRef = ref(database, 'categories');
+    update(categoriesRef, updatedCategories);
   };
-
-  const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 p-8">
@@ -182,7 +189,7 @@ const WorkLoggerApp = () => {
       {activeTab === 'history' && (
         <div className="bg-white shadow-lg border-indigo-200 border-2 p-4 rounded">
           <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historial</h2>
-          {sortedEntries.map(entry => (
+          {entries.map(entry => (
             <div key={entry.id} className="mb-4 p-4 border rounded">
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
               <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
@@ -257,6 +264,3 @@ const WorkLoggerApp = () => {
 };
 
 export default WorkLoggerApp;
-
-
-
