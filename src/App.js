@@ -257,7 +257,7 @@ const WorkLoggerApp = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 p-8">
-      <h1 className="text-3xl font-bold mb-8 text-indigo-600">Registro de Trabajo Diario</h1>
+      <h1 className="text-3xl font-bold mb-8 text-indigo-600">Agrega la ruta</h1>
       
       <div className="flex space-x-4 mb-8">
         <button onClick={() => setActiveTab('newEntry')} className={`px-4 py-2 rounded ${activeTab === 'newEntry' ? 'bg-indigo-600' : 'bg-indigo-500'} hover:bg-indigo-600 text-white`}>
