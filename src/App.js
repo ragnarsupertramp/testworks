@@ -323,10 +323,23 @@ const WorkLoggerApp = () => {
               ))}
             </ul>
           </div>
-          <div className="mt-4">
+              <div className="mt-4">
             <h3 className="text-xl font-semibold mb-2">Familia</h3>
             <ul>
               {categories.family.map(family => (
                 <li key={family} className="flex justify-between items-center mb-2">
                   {family}
-                  <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2
+                  <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
+                    Eliminar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default WorkLoggerApp;
