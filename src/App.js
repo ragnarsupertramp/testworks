@@ -15,6 +15,8 @@ const firebaseConfig = {
 
 // Inicializa Firebase
 const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+
 console.log("Intentando conectar con Firebase...");
 const connectedRef = ref(database, ".info/connected");
 onValue(connectedRef, (snap) => {
@@ -24,7 +26,7 @@ onValue(connectedRef, (snap) => {
     console.log("No conectado a Firebase");
   }
 });
-const database = getDatabase(app);
+
 
 const WorkLoggerApp = () => {
   const [activeTab, setActiveTab] = useState('newEntry');
