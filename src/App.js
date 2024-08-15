@@ -1,43 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, push, remove, update, set, get } from 'firebase/database';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-
-// Configuración de Firebase
-const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID
-};
-
-// Inicializa Firebase
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
-const auth = getAuth(app);
-
-// Autenticación anónima
-signInAnonymously(auth).catch(error => {
-  console.error("Error de autenticación:", error);
-});
-
-const useFirebaseAuth = () => {
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, user => {
-      setUser(user);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  return user;
-};
 
 const WorkLoggerApp = () => {
   const [activeTab, setActiveTab] = useState('newEntry');
@@ -48,157 +10,70 @@ const WorkLoggerApp = () => {
     time: format(new Date(), 'HH:mm'),
     category: 'clients',
     categoryItem: '',
-    comments: '',
-    articleQuantity: 0
+    comments: ''
   });
   const [editingEntry, setEditingEntry] = useState(null);
   const [newCategory, setNewCategory] = useState({ type: 'clients', name: '' });
-  const [error, setError] = useState(null);
-
-  const user = useFirebaseAuth();
-
-  const fetchData = useCallback(async () => {
-    if (!user) return;
-
-    try {
-      const entriesRef = ref(database, `users/${user.uid}/entries`);
-      const categoriesRef = ref(database, `users/${user.uid}/categories`);
-
-      const entriesSnapshot = await get(entriesRef);
-      const categoriesSnapshot = await get(categoriesRef);
-
-      if (entriesSnapshot.exists()) {
-        const entriesData = entriesSnapshot.val();
-        const entriesArray = Object.entries(entriesData).map(([key, value]) => ({
-          id: key,
-          ...value
-        }));
-        setEntries(entriesArray);
-      } else {
-        setEntries([]);
-      }
-
-      if (categoriesSnapshot.exists()) {
-        const categoriesData = categoriesSnapshot.val();
-        setCategories({
-          clients: Array.isArray(categoriesData.clients) ? categoriesData.clients : [],
-          family: Array.isArray(categoriesData.family) ? categoriesData.family : []
-        });
-      } else {
-        setCategories({ clients: [], family: [] });
-      }
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setError("Error al cargar los datos. Por favor, intenta de nuevo.");
-    }
-  }, [user]);
 
   useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user, fetchData]);
+    const savedEntries = JSON.parse(localStorage.getItem('entries')) || [];
+    const savedCategories = JSON.parse(localStorage.getItem('categories')) || { clients: [], family: [] };
+    setEntries(savedEntries);
+    setCategories(savedCategories);
+  }, []);
 
-  const handleAddEntry = useCallback(async (e) => {
+  useEffect(() => {
+    localStorage.setItem('entries', JSON.stringify(entries));
+    localStorage.setItem('categories', JSON.stringify(categories));
+  }, [entries, categories]);
+
+  const handleAddEntry = (e) => {
     e.preventDefault();
-    if (!user) return;
-
-    try {
-      const entriesRef = ref(database, `users/${user.uid}/entries`);
-      if (editingEntry) {
-        const entryRef = ref(database, `users/${user.uid}/entries/${editingEntry.id}`);
-        await update(entryRef, newEntry);
-        setEditingEntry(null);
-      } else {
-        await push(entriesRef, newEntry);
-      }
-      setNewEntry({
-        date: format(new Date(), 'yyyy-MM-dd'),
-        time: format(new Date(), 'HH:mm'),
-        category: 'clients',
-        categoryItem: '',
-        comments: '',
-        articleQuantity: 0
-      });
-      setActiveTab('history');
-      fetchData();
-    } catch (error) {
-      console.error('Error al añadir/actualizar entrada:', error);
-      setError("Error al guardar la entrada. Por favor, intenta de nuevo.");
+    if (editingEntry) {
+      setEntries(entries.map(entry => entry.id === editingEntry.id ? { ...newEntry, id: editingEntry.id } : entry));
+      setEditingEntry(null);
+    } else {
+      setEntries([...entries, { ...newEntry, id: Date.now() }]);
     }
-  }, [user, editingEntry, newEntry, fetchData]);
+    setNewEntry({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      time: format(new Date(), 'HH:mm'),
+      category: 'clients',
+      categoryItem: '',
+      comments: ''
+    });
+    setActiveTab('history');
+  };
 
-  const handleDeleteEntry = useCallback(async (id) => {
-    if (!user) return;
+  const handleEditEntry = (entry) => {
+    setEditingEntry(entry);
+    setNewEntry(entry);
+    setActiveTab('newEntry');
+  };
 
-    try {
-      const entryRef = ref(database, `users/${user.uid}/entries/${id}`);
-      await remove(entryRef);
-      fetchData();
-    } catch (error) {
-      console.error('Error al eliminar entrada:', error);
-      setError("Error al eliminar la entrada. Por favor, intenta de nuevo.");
-    }
-  }, [user, fetchData]);
+  const handleDeleteEntry = (id) => {
+    setEntries(entries.filter(entry => entry.id !== id));
+  };
 
-  const handleAddCategory = useCallback(async (e) => {
+  const handleAddCategory = (e) => {
     e.preventDefault();
-    if (!user || !newCategory.name || categories[newCategory.type].includes(newCategory.name)) return;
-
-    try {
-      const updatedCategories = {
+    if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
+      setCategories({
         ...categories,
         [newCategory.type]: [...categories[newCategory.type], newCategory.name]
-      };
-      const categoriesRef = ref(database, `users/${user.uid}/categories`);
-      await set(categoriesRef, updatedCategories);
+      });
       setNewCategory({ ...newCategory, name: '' });
-      fetchData();
-    } catch (error) {
-      console.error('Error al añadir categoría:', error);
-      setError("Error al añadir la categoría. Por favor, intenta de nuevo.");
     }
-  }, [user, categories, newCategory, fetchData]);
+  };
 
-  const handleDeleteCategory = useCallback(async (type, name) => {
-    if (!user) return;
+  const handleDeleteCategory = (type, name) => {
+    setCategories({
+      ...categories,
+      [type]: categories[type].filter(item => item !== name)
+    });
+  };
 
-    try {
-      const updatedCategories = {
-        ...categories,
-        [type]: categories[type].filter(item => item !== name)
-      };
-      const categoriesRef = ref(database, `users/${user.uid}/categories`);
-      await set(categoriesRef, updatedCategories);
-      fetchData();
-    } catch (error) {
-      console.error('Error al eliminar categoría:', error);
-      setError("Error al eliminar la categoría. Por favor, intenta de nuevo.");
-    }
-  }, [user, categories, fetchData]);
-
-  const sortedEntries = useMemo(() => {
-    return [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [entries]);
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-red-100 text-red-900 p-8">
-        <h1 className="text-3xl font-bold mb-4">Error</h1>
-        <p>{error}</p>
-        <button 
-          onClick={() => window.location.reload()} 
-          className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
-        >
-          Recargar página
-        </button>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
-  }
+  const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 p-8">
@@ -263,16 +138,6 @@ const WorkLoggerApp = () => {
               </select>
             </div>
             <div>
-              <label className="block mb-1">Cantidad de Artículos:</label>
-              <input
-                type="number"
-                value={newEntry.articleQuantity}
-                onChange={(e) => setNewEntry({...newEntry, articleQuantity: parseInt(e.target.value) || 0})}
-                className="w-full p-2 border rounded"
-                min="0"
-              />
-            </div>
-            <div>
               <label className="block mb-1">Comentarios:</label>
               <textarea
                 value={newEntry.comments}
@@ -290,20 +155,15 @@ const WorkLoggerApp = () => {
 
       {activeTab === 'history' && (
         <div className="bg-white shadow-lg border-indigo-200 border-2 p-4 rounded">
-          <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historials</h2>
+          <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historial</h2>
           {sortedEntries.map(entry => (
             <div key={entry.id} className="mb-4 p-4 border rounded">
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
               <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
               <p><strong>{entry.category === 'clients' ? 'Cliente' : 'Familiar'}:</strong> {entry.categoryItem}</p>
-              <p><strong>Cantidad de Artículos:</strong> {entry.articleQuantity}</p>
               <p><strong>Comentarios:</strong> {entry.comments}</p>
               <div className="mt-2">
-                <button onClick={() => {
-                  setEditingEntry(entry);
-                  setNewEntry(entry);
-                  setActiveTab('newEntry');
-                }} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded mr-2">
+                <button onClick={() => handleEditEntry(entry)} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded mr-2">
                   Editar
                 </button>
                 <button onClick={() => handleDeleteEntry(entry.id)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -370,46 +230,4 @@ const WorkLoggerApp = () => {
   );
 };
 
-const App = () => {
-  return (
-    <ErrorBoundary>
-      <WorkLoggerApp />
-    </ErrorBoundary>
-  );
-};
-
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.log("Error capturado en boundary:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-red-100 text-red-900 p-8">
-          <h1 className="text-3xl font-bold mb-4">Algo salió mal</h1>
-          <p>Ha ocurrido un error inesperado. Por favor, recarga la página.</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
-          >
-            Recargar página
-          </button>
-        </div>
-      );
-    }
-
-    return this.props.children; 
-  }
-}
-
-export default App;
+export default WorkLoggerApp;
