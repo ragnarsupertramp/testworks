@@ -15,6 +15,15 @@ const firebaseConfig = {
 
 // Inicializa Firebase
 const app = initializeApp(firebaseConfig);
+console.log("Intentando conectar con Firebase...");
+const connectedRef = ref(database, ".info/connected");
+onValue(connectedRef, (snap) => {
+  if (snap.val() === true) {
+    console.log("Conectado a Firebase");
+  } else {
+    console.log("No conectado a Firebase");
+  }
+});
 const database = getDatabase(app);
 
 const WorkLoggerApp = () => {
