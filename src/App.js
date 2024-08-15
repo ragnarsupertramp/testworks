@@ -10,7 +10,8 @@ const firebaseConfig = {
   projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
   storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL
 };
 
 // Inicializa Firebase
@@ -30,20 +31,31 @@ onValue(connectedRef, (snap) => {
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
-    console.log("Error capturado:", error, errorInfo);
+    console.log("Error capturado en boundary:", error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
-      return <h1>Algo salió mal. Por favor, recarga la página.</h1>;
+      return (
+        <div className="min-h-screen bg-red-100 text-red-900 p-8">
+          <h1 className="text-3xl font-bold mb-4">Algo salió mal</h1>
+          <p>{this.state.error && this.state.error.toString()}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
+          >
+            Recargar página
+          </button>
+        </div>
+      );
     }
 
     return this.props.children; 
@@ -52,6 +64,7 @@ class ErrorBoundary extends React.Component {
 
 const WorkLoggerApp = () => {
   console.log("Iniciando renderizado de WorkLoggerApp");
+  console.log("Configuración de Firebase:", firebaseConfig);
 
   const [activeTab, setActiveTab] = useState('newEntry');
   const [entries, setEntries] = useState([]);
@@ -93,11 +106,14 @@ const WorkLoggerApp = () => {
     const unsubscribeCategories = onValue(categoriesRef, (snapshot) => {
       console.log("Recibiendo actualización de categorías");
       const data = snapshot.val();
-      if (data) {
+      if (data && typeof data === 'object') {
         console.log("Categorías actualizadas:", data);
-        setCategories(data);
+        setCategories({
+          clients: Array.isArray(data.clients) ? data.clients : [],
+          family: Array.isArray(data.family) ? data.family : []
+        });
       } else {
-        console.log("No hay categorías en la base de datos");
+        console.log("No hay categorías válidas en la base de datos");
         setCategories({ clients: [], family: [] });
       }
     }, (error) => {
@@ -170,7 +186,9 @@ const WorkLoggerApp = () => {
     if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
       const updatedCategories = {
         ...categories,
-        [newCategory.type]: [...categories[newCategory.type], newCategory.name]
+        [newCategory.type]: Array.isArray(categories[newCategory.type])
+          ? [...categories[newCategory.type], newCategory.name]
+          : [newCategory.name]
       };
       const categoriesRef = ref(database, 'categories');
       set(categoriesRef, updatedCategories)
@@ -261,9 +279,12 @@ const WorkLoggerApp = () => {
                 className="w-full p-2 border rounded"
               >
                 <option value="">Seleccionar</option>
-                {categories[newEntry.category].map(item => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
+                {Array.isArray(categories[newEntry.category]) 
+                  ? categories[newEntry.category].map(item => (
+                      <option key={item} value={item}>{item}</option>
+                    ))
+                  : null
+                }
               </select>
             </div>
             <div>
@@ -341,7 +362,7 @@ const WorkLoggerApp = () => {
           <div>
             <h3 className="text-xl font-semibold mb-2">Clientes</h3>
             <ul>
-              {categories.clients.map(client => (
+              {Array.isArray(categories.clients) && categories.clients.map(client => (
                 <li key={client} className="flex justify-between items-center mb-2">
                   {client}
                   <button onClick={() => handleDeleteCategory('clients', client)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -354,7 +375,7 @@ const WorkLoggerApp = () => {
           <div className="mt-4">
             <h3 className="text-xl font-semibold mb-2">Familia</h3>
             <ul>
-              {categories.family.map(family => (
+              {Array.isArray(categories.family) && categories.family.map(family => (
                 <li key={family} className="flex justify-between items-center mb-2">
                   {family}
                   <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -370,10 +391,39 @@ const WorkLoggerApp = () => {
   );
 };
 
-const App = () => (
-  <ErrorBoundary>
-    <WorkLoggerApp />
-  </ErrorBoundary>
-);
+const App = () => {
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const handleError = (error) => {
+      console.error("Error capturado:", error);
+      setError(error);
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-red-100 text-red-900 p-8">
+        <h1 className="text-3xl font-bold mb-4">Ocurrió un error</h1>
+        <p>{error.message}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
+        >
+          Recargar página
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ErrorBoundary>
+      <WorkLoggerApp />
+    </ErrorBoundary>
+  );
+};
 
 export default App;
