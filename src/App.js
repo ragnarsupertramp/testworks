@@ -27,7 +27,32 @@ onValue(connectedRef, (snap) => {
   }
 });
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.log("Error capturado:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <h1>Algo salió mal. Por favor, recarga la página.</h1>;
+    }
+
+    return this.props.children; 
+  }
+}
+
 const WorkLoggerApp = () => {
+  console.log("Iniciando renderizado de WorkLoggerApp");
+
   const [activeTab, setActiveTab] = useState('newEntry');
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState({ clients: [], family: [] });
@@ -43,6 +68,7 @@ const WorkLoggerApp = () => {
   const [newCategory, setNewCategory] = useState({ type: 'clients', name: '' });
 
   useEffect(() => {
+    console.log("useEffect iniciado");
     const entriesRef = ref(database, 'entries');
     const categoriesRef = ref(database, 'categories');
 
@@ -79,7 +105,7 @@ const WorkLoggerApp = () => {
     });
 
     return () => {
-      console.log("Cancelando suscripciones a Firebase");
+      console.log("Limpieza de useEffect");
       unsubscribeEntries();
       unsubscribeCategories();
     };
@@ -175,6 +201,8 @@ const WorkLoggerApp = () => {
         console.error('Error al eliminar categoría:', error);
       });
   };
+
+  console.log("Antes de renderizar JSX");
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 p-8">
@@ -323,7 +351,7 @@ const WorkLoggerApp = () => {
               ))}
             </ul>
           </div>
-              <div className="mt-4">
+          <div className="mt-4">
             <h3 className="text-xl font-semibold mb-2">Familia</h3>
             <ul>
               {categories.family.map(family => (
@@ -342,4 +370,10 @@ const WorkLoggerApp = () => {
   );
 };
 
-export default WorkLoggerApp;
+const App = () => (
+  <ErrorBoundary>
+    <WorkLoggerApp />
+  </ErrorBoundary>
+);
+
+export default App;
