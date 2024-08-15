@@ -290,7 +290,7 @@ const WorkLoggerApp = () => {
 
       {activeTab === 'history' && (
         <div className="bg-white shadow-lg border-indigo-200 border-2 p-4 rounded">
-          <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historial</h2>
+          <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historials</h2>
           {sortedEntries.map(entry => (
             <div key={entry.id} className="mb-4 p-4 border rounded">
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
