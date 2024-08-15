@@ -27,7 +27,6 @@ onValue(connectedRef, (snap) => {
   }
 });
 
-
 const WorkLoggerApp = () => {
   const [activeTab, setActiveTab] = useState('newEntry');
   const [entries, setEntries] = useState([]);
@@ -37,7 +36,8 @@ const WorkLoggerApp = () => {
     time: format(new Date(), 'HH:mm'),
     category: 'clients',
     categoryItem: '',
-    comments: ''
+    comments: '',
+    articleQuantity: 0
   });
   const [editingEntry, setEditingEntry] = useState(null);
   const [newCategory, setNewCategory] = useState({ type: 'clients', name: '' });
@@ -47,14 +47,17 @@ const WorkLoggerApp = () => {
     const categoriesRef = ref(database, 'categories');
 
     const unsubscribeEntries = onValue(entriesRef, (snapshot) => {
+      console.log("Recibiendo actualización de entradas");
       const data = snapshot.val();
       if (data) {
         const entriesArray = Object.entries(data).map(([key, value]) => ({
           id: key,
           ...value
         }));
+        console.log("Entradas actualizadas:", entriesArray);
         setEntries(entriesArray);
       } else {
+        console.log("No hay entradas en la base de datos");
         setEntries([]);
       }
     }, (error) => {
@@ -62,10 +65,13 @@ const WorkLoggerApp = () => {
     });
 
     const unsubscribeCategories = onValue(categoriesRef, (snapshot) => {
+      console.log("Recibiendo actualización de categorías");
       const data = snapshot.val();
       if (data) {
+        console.log("Categorías actualizadas:", data);
         setCategories(data);
       } else {
+        console.log("No hay categorías en la base de datos");
         setCategories({ clients: [], family: [] });
       }
     }, (error) => {
@@ -73,6 +79,7 @@ const WorkLoggerApp = () => {
     });
 
     return () => {
+      console.log("Cancelando suscripciones a Firebase");
       unsubscribeEntries();
       unsubscribeCategories();
     };
@@ -80,12 +87,13 @@ const WorkLoggerApp = () => {
 
   const handleAddEntry = (e) => {
     e.preventDefault();
+    console.log("Intentando agregar/actualizar entrada:", newEntry);
     const entriesRef = ref(database, 'entries');
     if (editingEntry) {
       const entryRef = ref(database, `entries/${editingEntry.id}`);
       update(entryRef, newEntry)
         .then(() => {
-          console.log('Entrada actualizada con éxito');
+          console.log('Entrada actualizada con éxito:', newEntry);
           setEditingEntry(null);
         })
         .catch((error) => {
@@ -93,8 +101,8 @@ const WorkLoggerApp = () => {
         });
     } else {
       push(entriesRef, newEntry)
-        .then(() => {
-          console.log('Nueva entrada añadida con éxito');
+        .then((reference) => {
+          console.log('Nueva entrada añadida con éxito. ID:', reference.key);
         })
         .catch((error) => {
           console.error('Error al añadir nueva entrada:', error);
@@ -105,18 +113,21 @@ const WorkLoggerApp = () => {
       time: format(new Date(), 'HH:mm'),
       category: 'clients',
       categoryItem: '',
-      comments: ''
+      comments: '',
+      articleQuantity: 0
     });
     setActiveTab('history');
   };
 
   const handleEditEntry = (entry) => {
+    console.log("Editando entrada:", entry);
     setEditingEntry(entry);
     setNewEntry(entry);
     setActiveTab('newEntry');
   };
 
   const handleDeleteEntry = (id) => {
+    console.log("Eliminando entrada con ID:", id);
     const entryRef = ref(database, `entries/${id}`);
     remove(entryRef)
       .then(() => {
@@ -129,6 +140,7 @@ const WorkLoggerApp = () => {
 
   const handleAddCategory = (e) => {
     e.preventDefault();
+    console.log("Intentando agregar categoría:", newCategory);
     if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
       const updatedCategories = {
         ...categories,
@@ -137,16 +149,19 @@ const WorkLoggerApp = () => {
       const categoriesRef = ref(database, 'categories');
       set(categoriesRef, updatedCategories)
         .then(() => {
-          console.log('Categoría añadida con éxito');
+          console.log('Categoría añadida con éxito:', newCategory);
           setNewCategory({ ...newCategory, name: '' });
         })
         .catch((error) => {
           console.error('Error al añadir categoría:', error);
         });
+    } else {
+      console.log("Categoría inválida o ya existe");
     }
   };
 
   const handleDeleteCategory = (type, name) => {
+    console.log("Eliminando categoría:", { type, name });
     const updatedCategories = {
       ...categories,
       [type]: categories[type].filter(item => item !== name)
@@ -224,6 +239,16 @@ const WorkLoggerApp = () => {
               </select>
             </div>
             <div>
+              <label className="block mb-1">Cantidad de Artículos:</label>
+              <input
+                type="number"
+                value={newEntry.articleQuantity}
+                onChange={(e) => setNewEntry({...newEntry, articleQuantity: parseInt(e.target.value) || 0})}
+                className="w-full p-2 border rounded"
+                min="0"
+              />
+            </div>
+            <div>
               <label className="block mb-1">Comentarios:</label>
               <textarea
                 value={newEntry.comments}
@@ -247,6 +272,7 @@ const WorkLoggerApp = () => {
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
               <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
               <p><strong>{entry.category === 'clients' ? 'Cliente' : 'Familiar'}:</strong> {entry.categoryItem}</p>
+              <p><strong>Cantidad de Artículos:</strong> {entry.articleQuantity}</p>
               <p><strong>Comentarios:</strong> {entry.comments}</p>
               <div className="mt-2">
                 <button onClick={() => handleEditEntry(entry)} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded mr-2">
@@ -303,17 +329,4 @@ const WorkLoggerApp = () => {
               {categories.family.map(family => (
                 <li key={family} className="flex justify-between items-center mb-2">
                   {family}
-                  <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
-                    Eliminar
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default WorkLoggerApp;
+                  <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2
