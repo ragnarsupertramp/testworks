@@ -1,16 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, push, onValue, remove, update, set } from 'firebase/database';
+import { getDatabase, ref, push, onValue, remove, update, set, get } from 'firebase/database';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { format } from 'date-fns';
-
-console.log("Variables de entorno de Firebase:");
-console.log("API_KEY:", process.env.REACT_APP_FIREBASE_API_KEY);
-console.log("AUTH_DOMAIN:", process.env.REACT_APP_FIREBASE_AUTH_DOMAIN);
-console.log("DATABASE_URL:", process.env.REACT_APP_FIREBASE_DATABASE_URL);
-console.log("PROJECT_ID:", process.env.REACT_APP_FIREBASE_PROJECT_ID);
-console.log("STORAGE_BUCKET:", process.env.REACT_APP_FIREBASE_STORAGE_BUCKET);
-console.log("MESSAGING_SENDER_ID:", process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID);
-console.log("APP_ID:", process.env.REACT_APP_FIREBASE_APP_ID);
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -23,67 +15,31 @@ const firebaseConfig = {
   appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
-console.log("Firebase Config:", JSON.stringify(firebaseConfig, null, 2));
-
 // Inicializa Firebase
-let app;
-let database;
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+const auth = getAuth(app);
 
-try {
-  app = initializeApp(firebaseConfig);
-  console.log("Firebase inicializado correctamente");
-  
-  database = getDatabase(app);
-  console.log("Base de datos de Firebase obtenida correctamente");
-} catch (error) {
-  console.error("Error al inicializar Firebase o obtener la base de datos:", error);
-}
+// Autenticación anónima
+signInAnonymously(auth).catch(error => {
+  console.error("Error de autenticación:", error);
+});
 
-const getFirebaseDatabase = () => {
-  if (!database) {
-    console.error("La base de datos de Firebase no está inicializada");
-    return null;
-  }
-  return database;
+const useFirebaseAuth = () => {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, user => {
+      setUser(user);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  return user;
 };
 
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.log("Error capturado en boundary:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-red-100 text-red-900 p-8">
-          <h1 className="text-3xl font-bold mb-4">Algo salió mal</h1>
-          <p>{this.state.error && this.state.error.toString()}</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
-          >
-            Recargar página
-          </button>
-        </div>
-      );
-    }
-
-    return this.props.children; 
-  }
-}
-
 const WorkLoggerApp = () => {
-  console.log("Iniciando renderizado de WorkLoggerApp");
-
   const [activeTab, setActiveTab] = useState('newEntry');
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState({ clients: [], family: [] });
@@ -97,167 +53,156 @@ const WorkLoggerApp = () => {
   });
   const [editingEntry, setEditingEntry] = useState(null);
   const [newCategory, setNewCategory] = useState({ type: 'clients', name: '' });
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    console.log("useEffect iniciado");
-    const db = getFirebaseDatabase();
-    if (!db) return;
+  const user = useFirebaseAuth();
 
-    const entriesRef = ref(db, 'entries');
-    const categoriesRef = ref(db, 'categories');
+  const fetchData = useCallback(async () => {
+    if (!user) return;
 
-    const unsubscribeEntries = onValue(entriesRef, (snapshot) => {
-      console.log("Recibiendo actualización de entradas");
-      const data = snapshot.val();
-      if (data) {
-        const entriesArray = Object.entries(data).map(([key, value]) => ({
+    try {
+      const entriesRef = ref(database, `users/${user.uid}/entries`);
+      const categoriesRef = ref(database, `users/${user.uid}/categories`);
+
+      const entriesSnapshot = await get(entriesRef);
+      const categoriesSnapshot = await get(categoriesRef);
+
+      if (entriesSnapshot.exists()) {
+        const entriesData = entriesSnapshot.val();
+        const entriesArray = Object.entries(entriesData).map(([key, value]) => ({
           id: key,
           ...value
         }));
-        console.log("Entradas actualizadas:", entriesArray);
         setEntries(entriesArray);
       } else {
-        console.log("No hay entradas en la base de datos");
         setEntries([]);
       }
-    }, (error) => {
-      console.error("Error al leer entradas:", error);
-    });
 
-    const unsubscribeCategories = onValue(categoriesRef, (snapshot) => {
-      console.log("Recibiendo actualización de categorías");
-      const data = snapshot.val();
-      if (data && typeof data === 'object') {
-        console.log("Categorías actualizadas:", data);
+      if (categoriesSnapshot.exists()) {
+        const categoriesData = categoriesSnapshot.val();
         setCategories({
-          clients: Array.isArray(data.clients) ? data.clients : [],
-          family: Array.isArray(data.family) ? data.family : []
+          clients: Array.isArray(categoriesData.clients) ? categoriesData.clients : [],
+          family: Array.isArray(categoriesData.family) ? categoriesData.family : []
         });
       } else {
-        console.log("No hay categorías válidas en la base de datos");
         setCategories({ clients: [], family: [] });
       }
-    }, (error) => {
-      console.error("Error al leer categorías:", error);
-    });
-
-    return () => {
-      console.log("Limpieza de useEffect");
-      unsubscribeEntries();
-      unsubscribeCategories();
-    };
-  }, []);
-
-  const handleAddEntry = (e) => {
-    e.preventDefault();
-    console.log("Intentando agregar/actualizar entrada:", newEntry);
-    const db = getFirebaseDatabase();
-    if (!db) return;
-
-    const entriesRef = ref(db, 'entries');
-    if (editingEntry) {
-      const entryRef = ref(db, `entries/${editingEntry.id}`);
-      update(entryRef, newEntry)
-        .then(() => {
-          console.log('Entrada actualizada con éxito:', newEntry);
-          setEditingEntry(null);
-        })
-        .catch((error) => {
-          console.error('Error al actualizar entrada:', error);
-        });
-    } else {
-      push(entriesRef, newEntry)
-        .then((reference) => {
-          console.log('Nueva entrada añadida con éxito. ID:', reference.key);
-        })
-        .catch((error) => {
-          console.error('Error al añadir nueva entrada:', error);
-        });
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setError("Error al cargar los datos. Por favor, intenta de nuevo.");
     }
-    setNewEntry({
-      date: format(new Date(), 'yyyy-MM-dd'),
-      time: format(new Date(), 'HH:mm'),
-      category: 'clients',
-      categoryItem: '',
-      comments: '',
-      articleQuantity: 0
-    });
-    setActiveTab('history');
-  };
+  }, [user]);
 
-  const handleEditEntry = (entry) => {
-    console.log("Editando entrada:", entry);
-    setEditingEntry(entry);
-    setNewEntry(entry);
-    setActiveTab('newEntry');
-  };
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, [user, fetchData]);
 
-  const handleDeleteEntry = (id) => {
-    console.log("Eliminando entrada con ID:", id);
-    const db = getFirebaseDatabase();
-    if (!db) return;
-
-    const entryRef = ref(db, `entries/${id}`);
-    remove(entryRef)
-      .then(() => {
-        console.log('Entrada eliminada con éxito');
-      })
-      .catch((error) => {
-        console.error('Error al eliminar entrada:', error);
-      });
-  };
-
-  const handleAddCategory = (e) => {
+  const handleAddEntry = useCallback(async (e) => {
     e.preventDefault();
-    console.log("Intentando agregar categoría:", newCategory);
-    const db = getFirebaseDatabase();
-    if (!db) return;
+    if (!user) return;
 
-    if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
+    try {
+      const entriesRef = ref(database, `users/${user.uid}/entries`);
+      if (editingEntry) {
+        const entryRef = ref(database, `users/${user.uid}/entries/${editingEntry.id}`);
+        await update(entryRef, newEntry);
+        setEditingEntry(null);
+      } else {
+        await push(entriesRef, newEntry);
+      }
+      setNewEntry({
+        date: format(new Date(), 'yyyy-MM-dd'),
+        time: format(new Date(), 'HH:mm'),
+        category: 'clients',
+        categoryItem: '',
+        comments: '',
+        articleQuantity: 0
+      });
+      setActiveTab('history');
+      fetchData();
+    } catch (error) {
+      console.error('Error al añadir/actualizar entrada:', error);
+      setError("Error al guardar la entrada. Por favor, intenta de nuevo.");
+    }
+  }, [user, editingEntry, newEntry, fetchData]);
+
+  const handleDeleteEntry = useCallback(async (id) => {
+    if (!user) return;
+
+    try {
+      const entryRef = ref(database, `users/${user.uid}/entries/${id}`);
+      await remove(entryRef);
+      fetchData();
+    } catch (error) {
+      console.error('Error al eliminar entrada:', error);
+      setError("Error al eliminar la entrada. Por favor, intenta de nuevo.");
+    }
+  }, [user, fetchData]);
+
+  const handleAddCategory = useCallback(async (e) => {
+    e.preventDefault();
+    if (!user || !newCategory.name || categories[newCategory.type].includes(newCategory.name)) return;
+
+    try {
       const updatedCategories = {
         ...categories,
-        [newCategory.type]: Array.isArray(categories[newCategory.type])
-          ? [...categories[newCategory.type], newCategory.name]
-          : [newCategory.name]
+        [newCategory.type]: [...categories[newCategory.type], newCategory.name]
       };
-      const categoriesRef = ref(db, 'categories');
-      set(categoriesRef, updatedCategories)
-        .then(() => {
-          console.log('Categoría añadida con éxito:', newCategory);
-          setNewCategory({ ...newCategory, name: '' });
-        })
-        .catch((error) => {
-          console.error('Error al añadir categoría:', error);
-        });
-    } else {
-      console.log("Categoría inválida o ya existe");
+      const categoriesRef = ref(database, `users/${user.uid}/categories`);
+      await set(categoriesRef, updatedCategories);
+      setNewCategory({ ...newCategory, name: '' });
+      fetchData();
+    } catch (error) {
+      console.error('Error al añadir categoría:', error);
+      setError("Error al añadir la categoría. Por favor, intenta de nuevo.");
     }
-  };
+  }, [user, categories, newCategory, fetchData]);
 
-  const handleDeleteCategory = (type, name) => {
-    console.log("Eliminando categoría:", { type, name });
-    const db = getFirebaseDatabase();
-    if (!db) return;
+  const handleDeleteCategory = useCallback(async (type, name) => {
+    if (!user) return;
 
-    const updatedCategories = {
-      ...categories,
-      [type]: categories[type].filter(item => item !== name)
-    };
-    const categoriesRef = ref(db, 'categories');
-    set(categoriesRef, updatedCategories)
-      .then(() => {
-        console.log('Categoría eliminada con éxito');
-      })
-      .catch((error) => {
-        console.error('Error al eliminar categoría:', error);
-      });
-  };
+    try {
+      const updatedCategories = {
+        ...categories,
+        [type]: categories[type].filter(item => item !== name)
+      };
+      const categoriesRef = ref(database, `users/${user.uid}/categories`);
+      await set(categoriesRef, updatedCategories);
+      fetchData();
+    } catch (error) {
+      console.error('Error al eliminar categoría:', error);
+      setError("Error al eliminar la categoría. Por favor, intenta de nuevo.");
+    }
+  }, [user, categories, fetchData]);
 
-  console.log("Antes de renderizar JSX");
+  const sortedEntries = useMemo(() => {
+    return [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [entries]);
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-red-100 text-red-900 p-8">
+        <h1 className="text-3xl font-bold mb-4">Error</h1>
+        <p>{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
+        >
+          Recargar página
+        </button>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 p-8">
-      <h1 className="text-3xl font-bold mb-8 text-indigo-600">Agrega la ruta</h1>
+      <h1 className="text-3xl font-bold mb-8 text-indigo-600">Registro de Trabajo Diario</h1>
       
       <div className="flex space-x-4 mb-8">
         <button onClick={() => setActiveTab('newEntry')} className={`px-4 py-2 rounded ${activeTab === 'newEntry' ? 'bg-indigo-600' : 'bg-indigo-500'} hover:bg-indigo-600 text-white`}>
@@ -312,12 +257,9 @@ const WorkLoggerApp = () => {
                 className="w-full p-2 border rounded"
               >
                 <option value="">Seleccionar</option>
-                {Array.isArray(categories[newEntry.category]) 
-                  ? categories[newEntry.category].map(item => (
-                      <option key={item} value={item}>{item}</option>
-                    ))
-                  : null
-                }
+                {categories[newEntry.category].map(item => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -349,15 +291,19 @@ const WorkLoggerApp = () => {
       {activeTab === 'history' && (
         <div className="bg-white shadow-lg border-indigo-200 border-2 p-4 rounded">
           <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historial</h2>
-          {entries.map(entry => (
+          {sortedEntries.map(entry => (
             <div key={entry.id} className="mb-4 p-4 border rounded">
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
-             <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
+              <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
               <p><strong>{entry.category === 'clients' ? 'Cliente' : 'Familiar'}:</strong> {entry.categoryItem}</p>
               <p><strong>Cantidad de Artículos:</strong> {entry.articleQuantity}</p>
               <p><strong>Comentarios:</strong> {entry.comments}</p>
               <div className="mt-2">
-                <button onClick={() => handleEditEntry(entry)} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded mr-2">
+                <button onClick={() => {
+                  setEditingEntry(entry);
+                  setNewEntry(entry);
+                  setActiveTab('newEntry');
+                }} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded mr-2">
                   Editar
                 </button>
                 <button onClick={() => handleDeleteEntry(entry.id)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -395,7 +341,7 @@ const WorkLoggerApp = () => {
           <div>
             <h3 className="text-xl font-semibold mb-2">Clientes</h3>
             <ul>
-              {Array.isArray(categories.clients) && categories.clients.map(client => (
+              {categories.clients.map(client => (
                 <li key={client} className="flex justify-between items-center mb-2">
                   {client}
                   <button onClick={() => handleDeleteCategory('clients', client)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -408,7 +354,7 @@ const WorkLoggerApp = () => {
           <div className="mt-4">
             <h3 className="text-xl font-semibold mb-2">Familia</h3>
             <ul>
-              {Array.isArray(categories.family) && categories.family.map(family => (
+              {categories.family.map(family => (
                 <li key={family} className="flex justify-between items-center mb-2">
                   {family}
                   <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -425,38 +371,45 @@ const WorkLoggerApp = () => {
 };
 
 const App = () => {
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    const handleError = (error) => {
-      console.error("Error capturado:", error);
-      setError(error);
-    };
-
-    window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
-  }, []);
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-red-100 text-red-900 p-8">
-        <h1 className="text-3xl font-bold mb-4">Ocurrió un error</h1>
-        <p>{error.message}</p>
-        <button 
-          onClick={() => window.location.reload()} 
-          className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
-        >
-          Recargar página
-        </button>
-      </div>
-    );
-  }
-
   return (
     <ErrorBoundary>
       <WorkLoggerApp />
     </ErrorBoundary>
   );
 };
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.log("Error capturado en boundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-red-100 text-red-900 p-8">
+          <h1 className="text-3xl font-bold mb-4">Algo salió mal</h1>
+          <p>Ha ocurrido un error inesperado. Por favor, recarga la página.</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
+          >
+            Recargar página
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children; 
+  }
+}
 
 export default App;
