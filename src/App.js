@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, push, onValue, remove, update } from 'firebase/database';
+import { getDatabase, ref, push, onValue, remove, update, set } from 'firebase/database';
 import { format } from 'date-fns';
 
 // Configuración de Firebase
 const firebaseConfig = {
-  apiKey: "AIzaSyA-GViOkkcl4kzYg4djj3k7i2MUB8XIi6s",
-  authDomain: "testsworks.firebaseapp.com",
-  projectId: "testsworks",
-  storageBucket: "testsworks.appspot.com",
-  messagingSenderId: "123090865440",
-  appId: "1:123090865440:web:085253be8ac119edf51b45",
-  measurementId: "G-CG693H1Z4R"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
 // Inicializa Firebase
@@ -36,34 +35,59 @@ const WorkLoggerApp = () => {
     const entriesRef = ref(database, 'entries');
     const categoriesRef = ref(database, 'categories');
 
-    onValue(entriesRef, (snapshot) => {
+    const unsubscribeEntries = onValue(entriesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setEntries(Object.entries(data).map(([key, value]) => ({ id: key, ...value })));
+        const entriesArray = Object.entries(data).map(([key, value]) => ({
+          id: key,
+          ...value
+        }));
+        setEntries(entriesArray);
       } else {
         setEntries([]);
       }
+    }, (error) => {
+      console.error("Error al leer entradas:", error);
     });
 
-    onValue(categoriesRef, (snapshot) => {
+    const unsubscribeCategories = onValue(categoriesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setCategories(data);
       } else {
         setCategories({ clients: [], family: [] });
       }
+    }, (error) => {
+      console.error("Error al leer categorías:", error);
     });
+
+    return () => {
+      unsubscribeEntries();
+      unsubscribeCategories();
+    };
   }, []);
 
   const handleAddEntry = (e) => {
     e.preventDefault();
+    const entriesRef = ref(database, 'entries');
     if (editingEntry) {
       const entryRef = ref(database, `entries/${editingEntry.id}`);
-      update(entryRef, newEntry);
-      setEditingEntry(null);
+      update(entryRef, newEntry)
+        .then(() => {
+          console.log('Entrada actualizada con éxito');
+          setEditingEntry(null);
+        })
+        .catch((error) => {
+          console.error('Error al actualizar entrada:', error);
+        });
     } else {
-      const entriesRef = ref(database, 'entries');
-      push(entriesRef, newEntry);
+      push(entriesRef, newEntry)
+        .then(() => {
+          console.log('Nueva entrada añadida con éxito');
+        })
+        .catch((error) => {
+          console.error('Error al añadir nueva entrada:', error);
+        });
     }
     setNewEntry({
       date: format(new Date(), 'yyyy-MM-dd'),
@@ -83,7 +107,13 @@ const WorkLoggerApp = () => {
 
   const handleDeleteEntry = (id) => {
     const entryRef = ref(database, `entries/${id}`);
-    remove(entryRef);
+    remove(entryRef)
+      .then(() => {
+        console.log('Entrada eliminada con éxito');
+      })
+      .catch((error) => {
+        console.error('Error al eliminar entrada:', error);
+      });
   };
 
   const handleAddCategory = (e) => {
@@ -94,8 +124,14 @@ const WorkLoggerApp = () => {
         [newCategory.type]: [...categories[newCategory.type], newCategory.name]
       };
       const categoriesRef = ref(database, 'categories');
-      update(categoriesRef, updatedCategories);
-      setNewCategory({ ...newCategory, name: '' });
+      set(categoriesRef, updatedCategories)
+        .then(() => {
+          console.log('Categoría añadida con éxito');
+          setNewCategory({ ...newCategory, name: '' });
+        })
+        .catch((error) => {
+          console.error('Error al añadir categoría:', error);
+        });
     }
   };
 
@@ -105,7 +141,13 @@ const WorkLoggerApp = () => {
       [type]: categories[type].filter(item => item !== name)
     };
     const categoriesRef = ref(database, 'categories');
-    update(categoriesRef, updatedCategories);
+    set(categoriesRef, updatedCategories)
+      .then(() => {
+        console.log('Categoría eliminada con éxito');
+      })
+      .catch((error) => {
+        console.error('Error al eliminar categoría:', error);
+      });
   };
 
   return (
