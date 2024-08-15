@@ -1,7 +1,89 @@
 import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, push, onValue, remove, update, set } from 'firebase/database';
 import { format } from 'date-fns';
 
+console.log("Variables de entorno de Firebase:");
+console.log("API_KEY:", process.env.REACT_APP_FIREBASE_API_KEY);
+console.log("AUTH_DOMAIN:", process.env.REACT_APP_FIREBASE_AUTH_DOMAIN);
+console.log("DATABASE_URL:", process.env.REACT_APP_FIREBASE_DATABASE_URL);
+console.log("PROJECT_ID:", process.env.REACT_APP_FIREBASE_PROJECT_ID);
+console.log("STORAGE_BUCKET:", process.env.REACT_APP_FIREBASE_STORAGE_BUCKET);
+console.log("MESSAGING_SENDER_ID:", process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID);
+console.log("APP_ID:", process.env.REACT_APP_FIREBASE_APP_ID);
+
+// Configuración de Firebase
+const firebaseConfig = {
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
+};
+
+console.log("Firebase Config:", JSON.stringify(firebaseConfig, null, 2));
+
+// Inicializa Firebase
+let app;
+let database;
+
+try {
+  app = initializeApp(firebaseConfig);
+  console.log("Firebase inicializado correctamente");
+  
+  database = getDatabase(app);
+  console.log("Base de datos de Firebase obtenida correctamente");
+} catch (error) {
+  console.error("Error al inicializar Firebase o obtener la base de datos:", error);
+}
+
+const getFirebaseDatabase = () => {
+  if (!database) {
+    console.error("La base de datos de Firebase no está inicializada");
+    return null;
+  }
+  return database;
+};
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.log("Error capturado en boundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-red-100 text-red-900 p-8">
+          <h1 className="text-3xl font-bold mb-4">Algo salió mal</h1>
+          <p>{this.state.error && this.state.error.toString()}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
+          >
+            Recargar página
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children; 
+  }
+}
+
 const WorkLoggerApp = () => {
+  console.log("Iniciando renderizado de WorkLoggerApp");
+
   const [activeTab, setActiveTab] = useState('newEntry');
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState({ clients: [], family: [] });
@@ -10,70 +92,168 @@ const WorkLoggerApp = () => {
     time: format(new Date(), 'HH:mm'),
     category: 'clients',
     categoryItem: '',
-    comments: ''
+    comments: '',
+    articleQuantity: 0
   });
   const [editingEntry, setEditingEntry] = useState(null);
   const [newCategory, setNewCategory] = useState({ type: 'clients', name: '' });
 
   useEffect(() => {
-    const savedEntries = JSON.parse(localStorage.getItem('entries')) || [];
-    const savedCategories = JSON.parse(localStorage.getItem('categories')) || { clients: [], family: [] };
-    setEntries(savedEntries);
-    setCategories(savedCategories);
-  }, []);
+    console.log("useEffect iniciado");
+    const db = getFirebaseDatabase();
+    if (!db) return;
 
-  useEffect(() => {
-    localStorage.setItem('entries', JSON.stringify(entries));
-    localStorage.setItem('categories', JSON.stringify(categories));
-  }, [entries, categories]);
+    const entriesRef = ref(db, 'entries');
+    const categoriesRef = ref(db, 'categories');
+
+    const unsubscribeEntries = onValue(entriesRef, (snapshot) => {
+      console.log("Recibiendo actualización de entradas");
+      const data = snapshot.val();
+      if (data) {
+        const entriesArray = Object.entries(data).map(([key, value]) => ({
+          id: key,
+          ...value
+        }));
+        console.log("Entradas actualizadas:", entriesArray);
+        setEntries(entriesArray);
+      } else {
+        console.log("No hay entradas en la base de datos");
+        setEntries([]);
+      }
+    }, (error) => {
+      console.error("Error al leer entradas:", error);
+    });
+
+    const unsubscribeCategories = onValue(categoriesRef, (snapshot) => {
+      console.log("Recibiendo actualización de categorías");
+      const data = snapshot.val();
+      if (data && typeof data === 'object') {
+        console.log("Categorías actualizadas:", data);
+        setCategories({
+          clients: Array.isArray(data.clients) ? data.clients : [],
+          family: Array.isArray(data.family) ? data.family : []
+        });
+      } else {
+        console.log("No hay categorías válidas en la base de datos");
+        setCategories({ clients: [], family: [] });
+      }
+    }, (error) => {
+      console.error("Error al leer categorías:", error);
+    });
+
+    return () => {
+      console.log("Limpieza de useEffect");
+      unsubscribeEntries();
+      unsubscribeCategories();
+    };
+  }, []);
 
   const handleAddEntry = (e) => {
     e.preventDefault();
+    console.log("Intentando agregar/actualizar entrada:", newEntry);
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
+    const entriesRef = ref(db, 'entries');
     if (editingEntry) {
-      setEntries(entries.map(entry => entry.id === editingEntry.id ? { ...newEntry, id: editingEntry.id } : entry));
-      setEditingEntry(null);
+      const entryRef = ref(db, `entries/${editingEntry.id}`);
+      update(entryRef, newEntry)
+        .then(() => {
+          console.log('Entrada actualizada con éxito:', newEntry);
+          setEditingEntry(null);
+        })
+        .catch((error) => {
+          console.error('Error al actualizar entrada:', error);
+        });
     } else {
-      setEntries([...entries, { ...newEntry, id: Date.now() }]);
+      push(entriesRef, newEntry)
+        .then((reference) => {
+          console.log('Nueva entrada añadida con éxito. ID:', reference.key);
+        })
+        .catch((error) => {
+          console.error('Error al añadir nueva entrada:', error);
+        });
     }
     setNewEntry({
       date: format(new Date(), 'yyyy-MM-dd'),
       time: format(new Date(), 'HH:mm'),
       category: 'clients',
       categoryItem: '',
-      comments: ''
+      comments: '',
+      articleQuantity: 0
     });
     setActiveTab('history');
   };
 
   const handleEditEntry = (entry) => {
+    console.log("Editando entrada:", entry);
     setEditingEntry(entry);
     setNewEntry(entry);
     setActiveTab('newEntry');
   };
 
   const handleDeleteEntry = (id) => {
-    setEntries(entries.filter(entry => entry.id !== id));
+    console.log("Eliminando entrada con ID:", id);
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
+    const entryRef = ref(db, `entries/${id}`);
+    remove(entryRef)
+      .then(() => {
+        console.log('Entrada eliminada con éxito');
+      })
+      .catch((error) => {
+        console.error('Error al eliminar entrada:', error);
+      });
   };
 
   const handleAddCategory = (e) => {
     e.preventDefault();
+    console.log("Intentando agregar categoría:", newCategory);
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
     if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
-      setCategories({
+      const updatedCategories = {
         ...categories,
-        [newCategory.type]: [...categories[newCategory.type], newCategory.name]
-      });
-      setNewCategory({ ...newCategory, name: '' });
+        [newCategory.type]: Array.isArray(categories[newCategory.type])
+          ? [...categories[newCategory.type], newCategory.name]
+          : [newCategory.name]
+      };
+      const categoriesRef = ref(db, 'categories');
+      set(categoriesRef, updatedCategories)
+        .then(() => {
+          console.log('Categoría añadida con éxito:', newCategory);
+          setNewCategory({ ...newCategory, name: '' });
+        })
+        .catch((error) => {
+          console.error('Error al añadir categoría:', error);
+        });
+    } else {
+      console.log("Categoría inválida o ya existe");
     }
   };
 
   const handleDeleteCategory = (type, name) => {
-    setCategories({
+    console.log("Eliminando categoría:", { type, name });
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
+    const updatedCategories = {
       ...categories,
       [type]: categories[type].filter(item => item !== name)
-    });
+    };
+    const categoriesRef = ref(db, 'categories');
+    set(categoriesRef, updatedCategories)
+      .then(() => {
+        console.log('Categoría eliminada con éxito');
+      })
+      .catch((error) => {
+        console.error('Error al eliminar categoría:', error);
+      });
   };
 
-  const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
+  console.log("Antes de renderizar JSX");
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 p-8">
@@ -132,10 +312,23 @@ const WorkLoggerApp = () => {
                 className="w-full p-2 border rounded"
               >
                 <option value="">Seleccionar</option>
-                {categories[newEntry.category].map(item => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
+                {Array.isArray(categories[newEntry.category]) 
+                  ? categories[newEntry.category].map(item => (
+                      <option key={item} value={item}>{item}</option>
+                    ))
+                  : null
+                }
               </select>
+            </div>
+            <div>
+              <label className="block mb-1">Cantidad de Artículos:</label>
+              <input
+                type="number"
+                value={newEntry.articleQuantity}
+                onChange={(e) => setNewEntry({...newEntry, articleQuantity: parseInt(e.target.value) || 0})}
+                className="w-full p-2 border rounded"
+                min="0"
+              />
             </div>
             <div>
               <label className="block mb-1">Comentarios:</label>
@@ -156,11 +349,12 @@ const WorkLoggerApp = () => {
       {activeTab === 'history' && (
         <div className="bg-white shadow-lg border-indigo-200 border-2 p-4 rounded">
           <h2 className="text-2xl font-semibold text-indigo-600 mb-4">Historial</h2>
-          {sortedEntries.map(entry => (
+          {entries.map(entry => (
             <div key={entry.id} className="mb-4 p-4 border rounded">
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
-              <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
+            <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
               <p><strong>{entry.category === 'clients' ? 'Cliente' : 'Familiar'}:</strong> {entry.categoryItem}</p>
+              <p><strong>Cantidad de Artículos:</strong> {entry.articleQuantity}</p>
               <p><strong>Comentarios:</strong> {entry.comments}</p>
               <div className="mt-2">
                 <button onClick={() => handleEditEntry(entry)} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded mr-2">
@@ -201,7 +395,7 @@ const WorkLoggerApp = () => {
           <div>
             <h3 className="text-xl font-semibold mb-2">Clientes</h3>
             <ul>
-              {categories.clients.map(client => (
+              {Array.isArray(categories.clients) && categories.clients.map(client => (
                 <li key={client} className="flex justify-between items-center mb-2">
                   {client}
                   <button onClick={() => handleDeleteCategory('clients', client)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -214,7 +408,7 @@ const WorkLoggerApp = () => {
           <div className="mt-4">
             <h3 className="text-xl font-semibold mb-2">Familia</h3>
             <ul>
-              {categories.family.map(family => (
+              {Array.isArray(categories.family) && categories.family.map(family => (
                 <li key={family} className="flex justify-between items-center mb-2">
                   {family}
                   <button onClick={() => handleDeleteCategory('family', family)} className="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
@@ -230,4 +424,39 @@ const WorkLoggerApp = () => {
   );
 };
 
-export default WorkLoggerApp;
+const App = () => {
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const handleError = (error) => {
+      console.error("Error capturado:", error);
+      setError(error);
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-red-100 text-red-900 p-8">
+        <h1 className="text-3xl font-bold mb-4">Ocurrió un error</h1>
+        <p>{error.message}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-4 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
+        >
+          Recargar página
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ErrorBoundary>
+      <WorkLoggerApp />
+    </ErrorBoundary>
+  );
+};
+
+export default App;
