@@ -3,30 +3,49 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, push, onValue, remove, update, set } from 'firebase/database';
 import { format } from 'date-fns';
 
+console.log("Variables de entorno de Firebase:");
+console.log("API_KEY:", process.env.REACT_APP_FIREBASE_API_KEY);
+console.log("AUTH_DOMAIN:", process.env.REACT_APP_FIREBASE_AUTH_DOMAIN);
+console.log("DATABASE_URL:", process.env.REACT_APP_FIREBASE_DATABASE_URL);
+console.log("PROJECT_ID:", process.env.REACT_APP_FIREBASE_PROJECT_ID);
+console.log("STORAGE_BUCKET:", process.env.REACT_APP_FIREBASE_STORAGE_BUCKET);
+console.log("MESSAGING_SENDER_ID:", process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID);
+console.log("APP_ID:", process.env.REACT_APP_FIREBASE_APP_ID);
+
 // Configuración de Firebase
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL,
   projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
   storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID,
-  databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
-// Inicializa Firebase
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
+console.log("Firebase Config:", JSON.stringify(firebaseConfig, null, 2));
 
-console.log("Intentando conectar con Firebase...");
-const connectedRef = ref(database, ".info/connected");
-onValue(connectedRef, (snap) => {
-  if (snap.val() === true) {
-    console.log("Conectado a Firebase");
-  } else {
-    console.log("No conectado a Firebase");
+// Inicializa Firebase
+let app;
+let database;
+
+try {
+  app = initializeApp(firebaseConfig);
+  console.log("Firebase inicializado correctamente");
+  
+  database = getDatabase(app);
+  console.log("Base de datos de Firebase obtenida correctamente");
+} catch (error) {
+  console.error("Error al inicializar Firebase o obtener la base de datos:", error);
+}
+
+const getFirebaseDatabase = () => {
+  if (!database) {
+    console.error("La base de datos de Firebase no está inicializada");
+    return null;
   }
-});
+  return database;
+};
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -64,7 +83,6 @@ class ErrorBoundary extends React.Component {
 
 const WorkLoggerApp = () => {
   console.log("Iniciando renderizado de WorkLoggerApp");
-  console.log("Configuración de Firebase:", firebaseConfig);
 
   const [activeTab, setActiveTab] = useState('newEntry');
   const [entries, setEntries] = useState([]);
@@ -82,8 +100,11 @@ const WorkLoggerApp = () => {
 
   useEffect(() => {
     console.log("useEffect iniciado");
-    const entriesRef = ref(database, 'entries');
-    const categoriesRef = ref(database, 'categories');
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
+    const entriesRef = ref(db, 'entries');
+    const categoriesRef = ref(db, 'categories');
 
     const unsubscribeEntries = onValue(entriesRef, (snapshot) => {
       console.log("Recibiendo actualización de entradas");
@@ -130,9 +151,12 @@ const WorkLoggerApp = () => {
   const handleAddEntry = (e) => {
     e.preventDefault();
     console.log("Intentando agregar/actualizar entrada:", newEntry);
-    const entriesRef = ref(database, 'entries');
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
+    const entriesRef = ref(db, 'entries');
     if (editingEntry) {
-      const entryRef = ref(database, `entries/${editingEntry.id}`);
+      const entryRef = ref(db, `entries/${editingEntry.id}`);
       update(entryRef, newEntry)
         .then(() => {
           console.log('Entrada actualizada con éxito:', newEntry);
@@ -170,7 +194,10 @@ const WorkLoggerApp = () => {
 
   const handleDeleteEntry = (id) => {
     console.log("Eliminando entrada con ID:", id);
-    const entryRef = ref(database, `entries/${id}`);
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
+    const entryRef = ref(db, `entries/${id}`);
     remove(entryRef)
       .then(() => {
         console.log('Entrada eliminada con éxito');
@@ -183,6 +210,9 @@ const WorkLoggerApp = () => {
   const handleAddCategory = (e) => {
     e.preventDefault();
     console.log("Intentando agregar categoría:", newCategory);
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
     if (newCategory.name && !categories[newCategory.type].includes(newCategory.name)) {
       const updatedCategories = {
         ...categories,
@@ -190,7 +220,7 @@ const WorkLoggerApp = () => {
           ? [...categories[newCategory.type], newCategory.name]
           : [newCategory.name]
       };
-      const categoriesRef = ref(database, 'categories');
+      const categoriesRef = ref(db, 'categories');
       set(categoriesRef, updatedCategories)
         .then(() => {
           console.log('Categoría añadida con éxito:', newCategory);
@@ -206,11 +236,14 @@ const WorkLoggerApp = () => {
 
   const handleDeleteCategory = (type, name) => {
     console.log("Eliminando categoría:", { type, name });
+    const db = getFirebaseDatabase();
+    if (!db) return;
+
     const updatedCategories = {
       ...categories,
       [type]: categories[type].filter(item => item !== name)
     };
-    const categoriesRef = ref(database, 'categories');
+    const categoriesRef = ref(db, 'categories');
     set(categoriesRef, updatedCategories)
       .then(() => {
         console.log('Categoría eliminada con éxito');
@@ -319,7 +352,7 @@ const WorkLoggerApp = () => {
           {entries.map(entry => (
             <div key={entry.id} className="mb-4 p-4 border rounded">
               <p><strong>Fecha:</strong> {entry.date} {entry.time}</p>
-              <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
+             <p><strong>Categoría:</strong> {entry.category === 'clients' ? 'Cliente' : 'Familiar'}</p>
               <p><strong>{entry.category === 'clients' ? 'Cliente' : 'Familiar'}:</strong> {entry.categoryItem}</p>
               <p><strong>Cantidad de Artículos:</strong> {entry.articleQuantity}</p>
               <p><strong>Comentarios:</strong> {entry.comments}</p>
